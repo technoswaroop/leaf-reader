@@ -83,6 +83,27 @@ async function parseText(file) {
   const html = t.split(/\n{2,}/).map((p) => '<p>' + esc(p).replace(/\n/g, '<br>') + '</p>').join('');
   return { title: file.name.replace(/\.[^.]+$/, ''), kind: 'document', html };
 }
+async function parsePdf(file) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  let html = '';
+  for (let n = 1; n <= pdf.numPages; n++) {
+    const tc = await (await pdf.getPage(n)).getTextContent();
+    let line = '', lastY = null;
+    const paras = [];
+    for (const it of tc.items) {
+      const y = it.transform[5];
+      if (lastY !== null && Math.abs(y - lastY) > 2) {
+        if (Math.abs(y - lastY) > (it.height || 10) * 1.8) { paras.push(line); line = ''; } else line += ' ';
+      }
+      line += it.str; lastY = y;
+    }
+    paras.push(line);
+    html += paras.filter((p) => p.trim()).map((p) => '<p>' + esc(p.trim()) + '</p>').join('');
+  }
+  if (!html) throw new Error('This PDF has no text (it may be scanned pictures).');
+  return { title: file.name.replace(/\.pdf$/i, ''), kind: 'document', html };
+}
 async function parseLink(url) {
   const http = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp;
   let body;
@@ -128,7 +149,7 @@ function wireLibrary() {
   $('#fileInput').onchange = async (e) => {
     const f = e.target.files[0]; e.target.value = '';
     if (!f) return;
-    try { await addItem(/\.epub$/i.test(f.name) ? await parseEpub(f) : await parseText(f)); }
+    try { await addItem(/\.epub$/i.test(f.name) ? await parseEpub(f) : /\.pdf$/i.test(f.name) ? await parsePdf(f) : await parseText(f)); }
     catch (err) { alert('Could not open this file: ' + err.message); }
   };
   $('#addLink').onclick = async () => {
@@ -136,10 +157,101 @@ function wireLibrary() {
     if (!url) return;
     try { await addItem(await parseLink(url.trim())); } catch (err) { alert('Could not fetch this link: ' + err.message); }
   };
+  $('#backup').onclick = exportBackup;
+  $('#restore').onclick = () => $('#backupInput').click();
+  $('#backupInput').onchange = async (e) => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (f) try { await importBackup(f); } catch (err) { alert('Could not restore: ' + err.message); }
+  };
   $('#search').oninput = renderList;
   $('#sort').onchange = renderList;
   document.querySelectorAll('#tabs button').forEach((b) => b.onclick = () => { tab = b.dataset.tab; document.querySelectorAll('#tabs button').forEach((x) => x.classList.toggle('on', x === b)); renderList(); });
   document.querySelectorAll('#kinds button').forEach((b) => b.onclick = () => { kind = b.dataset.kind; document.querySelectorAll('#kinds button').forEach((x) => x.classList.toggle('on', x === b)); renderList(); });
+}
+
+// ---------- backup / move to another device ----------
+async function exportBackup() {
+  const json = JSON.stringify({ v: 1, items: await allItems() });
+  const name = 'leaf-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+  const P = window.Capacitor && window.Capacitor.Plugins;
+  try {
+    if (P && P.Filesystem && P.Share) {
+      const r = await P.Filesystem.writeFile({ path: name, data: json, directory: 'CACHE', encoding: 'utf8' });
+      await P.Share.share({ title: name, url: r.uri });
+      return;
+    }
+  } catch (e) { /* fall back to a plain download */ }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+  a.download = name; a.click();
+}
+async function importBackup(file) {
+  const data = JSON.parse(await file.text());
+  if (!data.items) throw new Error('Not a Leaf Reader backup');
+  const mine = new Map((await allItems()).map((i) => [i.id, i]));
+  for (const inc of data.items) {
+    const old = mine.get(inc.id);
+    if (!old) { await putItem(inc); continue; }
+    const win = (inc.lastRead || 0) > (old.lastRead || 0) ? inc : old;
+    const seen = new Set();
+    win.highlights = [...(old.highlights || []), ...(inc.highlights || [])].filter((h) => !seen.has(h.start + ':' + h.end) && seen.add(h.start + ':' + h.end));
+    win.finished = old.finished || inc.finished;
+    await putItem(win);
+  }
+  renderList();
+  alert('Restored.');
+}
+
+// ---------- shared from other apps ----------
+async function drainShared() {
+  const q = window.__q || []; window.__q = [];
+  for (const t of q) {
+    const m = t.match(/https?:\/\/\S+/);
+    try {
+      if (m) await addItem(await parseLink(m[0]));
+      else await addItem({ title: t.slice(0, 40), kind: 'document', html: '<p>' + esc(t) + '</p>' });
+      alert('Saved to Leaf Reader');
+    } catch (err) { alert('Could not save this link: ' + err.message); }
+  }
+}
+window.__shared = drainShared;
+
+// ---------- highlights ----------
+const textNodes = (root) => { const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT); const a = []; let n; while ((n = w.nextNode())) a.push(n); return a; };
+function offsetOf(root, node, off) {
+  const r = document.createRange(); r.selectNodeContents(root); r.setEnd(node, off); return r.toString().length;
+}
+function applyHighlights() {
+  const root = $('#content');
+  (cur.highlights || []).forEach((h, idx) => {
+    let pos = 0;
+    for (const t of textNodes(root)) {
+      const s = pos, e = pos + t.length; pos = e;
+      const a = Math.max(h.start, s), b = Math.min(h.end, e);
+      if (a < b) {
+        const r = document.createRange(); r.setStart(t, a - s); r.setEnd(t, b - s);
+        const mk = document.createElement('mark'); mk.dataset.i = idx; r.surroundContents(mk);
+      }
+    }
+  });
+}
+function renderContent() { $('#content').innerHTML = cur.html; applyHighlights(); }
+function wireHighlights() {
+  document.addEventListener('selectionchange', () => {
+    const s = getSelection(); const c = $('#content');
+    $('#hl').hidden = !(cur && s && !s.isCollapsed && c.contains(s.anchorNode) && c.contains(s.focusNode));
+  });
+  $('#hl').onclick = async () => {
+    const s = getSelection(); if (!s.rangeCount) return;
+    const r = s.getRangeAt(0), root = $('#content');
+    const a = offsetOf(root, r.startContainer, r.startOffset), b = offsetOf(root, r.endContainer, r.endOffset);
+    if (b > a) { (cur.highlights = cur.highlights || []).push({ start: a, end: b, text: r.toString().slice(0, 200) }); await putItem(cur); renderContent(); }
+    s.removeAllRanges(); $('#hl').hidden = true;
+  };
+  $('#content').addEventListener('click', async (e) => {
+    const m = e.target.closest('mark');
+    if (m && confirm('Remove this highlight?')) { cur.highlights.splice(+m.dataset.i, 1); await putItem(cur); renderContent(); }
+  });
 }
 
 // ---------- reader ----------
@@ -148,7 +260,7 @@ function openReader(it) {
   cur = it;
   $('#library').hidden = true; $('#reader').hidden = false;
   $('#rtitle').textContent = it.title;
-  $('#content').innerHTML = it.html;
+  renderContent();
   $('#panel').hidden = true;
   const page = $('#page');
   requestAnimationFrame(() => { page.scrollTop = it.progress * (page.scrollHeight - page.clientHeight); });
@@ -181,4 +293,4 @@ function wireReader() {
   $('#width').value = S.width; $('#width').onchange = (e) => { S.width = e.target.value; applySettings(); };
 }
 
-(async () => { await openDb(); wireLibrary(); wireReader(); applySettings(); renderList(); })();
+(async () => { await openDb(); wireLibrary(); wireReader(); wireHighlights(); applySettings(); renderList(); drainShared(); })();

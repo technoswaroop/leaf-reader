@@ -16,7 +16,9 @@ jobs:
           java-version: 17
       - run: npm install
       - run: cp node_modules/jszip/dist/jszip.min.js www/jszip.min.js
+      - run: cp node_modules/pdfjs-dist/build/pdf.min.js www/pdf.min.js && cp node_modules/pdfjs-dist/build/pdf.worker.min.js www/pdf.worker.min.js
       - run: npx cap add android
+      - run: node scripts/patch-android.js
       - run: npx cap sync android
       - run: chmod +x gradlew && ./gradlew assembleDebug
         working-directory: android

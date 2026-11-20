@@ -30,9 +30,14 @@
   <div class="row chips">
     <select id="sort"><option value="recent">Recently read</option><option value="az">A to Z</option></select>
   </div>
+  <div class="row chips">
+    <button id="backup">Backup</button>
+    <button id="restore">Restore</button>
+  </div>
   <ul id="list"></ul>
   <p id="empty" class="muted">Nothing here yet. Add a file (EPUB or TXT) or paste a link.</p>
-  <input id="fileInput" type="file" accept=".epub,.txt,.text,.md" hidden>
+  <input id="fileInput" type="file" accept=".epub,.pdf,.txt,.text,.md" hidden>
+  <input id="backupInput" type="file" accept=".json,application/json" hidden>
 </div>
 
 <div id="reader" class="screen" hidden>
@@ -71,8 +76,10 @@
   </div>
 </div>
 
+<button id="hl" hidden>Highlight</button>
 <div id="dim"></div><div id="warm"></div><div id="grainLayer"></div>
 <script src="jszip.min.js"></script>
+<script src="pdf.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

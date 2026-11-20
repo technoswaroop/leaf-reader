@@ -28,3 +28,5 @@ li .bar i{display:block;height:100%;background:var(--fg);border-radius:2px}
 #dim{background:#000;opacity:0}
 #warm{background:#ff9a3c;mix-blend-mode:multiply;opacity:0}
 #grainLayer{opacity:0;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9'/></filter><rect width='120' height='120' filter='url(%23n)'/></svg>")}
+mark{background:rgba(242,200,60,.45);color:inherit}
+#hl{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:20;background:var(--fg);color:var(--bg);box-shadow:0 2px 10px rgba(0,0,0,.4)}
