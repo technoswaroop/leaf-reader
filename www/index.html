@@ -2,81 +2,82 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#f7f4ec">
 <title>Leaf Reader</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="paper">
-<div id="library" class="screen">
-  <header>
+
+<main id="libraryView" class="view">
+  <div class="titlebar">
     <h1>Library</h1>
-    <div class="row">
-      <button id="addFile">+ File</button>
-      <button id="addLink">+ Link</button>
+    <div class="tb-actions">
+      <button class="round" id="addBtn" aria-label="Add"><span data-ic="plus"></span></button>
     </div>
-  </header>
-  <input id="search" type="search" placeholder="Search titles and text">
-  <div class="row chips" id="tabs">
+  </div>
+  <div class="search"><span data-ic="search"></span><input id="search" type="search" placeholder="Search titles and text"></div>
+  <div class="segmented" id="tabs">
     <button data-tab="all" class="on">All</button>
     <button data-tab="reading">Reading</button>
     <button data-tab="finished">Finished</button>
   </div>
-  <div class="row chips" id="kinds">
-    <button data-kind="all" class="on">Any</button>
+  <div class="chips" id="kinds">
+    <button data-kind="all" class="on">Everything</button>
     <button data-kind="book">Books</button>
     <button data-kind="article">Articles</button>
     <button data-kind="document">Documents</button>
+    <button id="sortBtn" class="ghost">Recent</button>
   </div>
-  <div class="row chips">
-    <select id="sort"><option value="recent">Recently read</option><option value="az">A to Z</option></select>
+  <div id="hero"></div>
+  <div id="grid" class="grid"></div>
+  <div id="empty" class="empty" hidden>
+    <div class="empty-leaf" data-ic="leaf"></div>
+    <h2>Your shelf is empty</h2>
+    <p>Add an EPUB, a PDF, a text file or a web link. Everything stays on this phone.</p>
+    <button class="primary" id="emptyAdd">Add your first book</button>
   </div>
-  <div class="row chips">
-    <button id="backup">Backup</button>
-    <button id="restore">Restore</button>
-  </div>
-  <ul id="list"></ul>
-  <p id="empty" class="muted">Nothing here yet. Add a file (EPUB or TXT) or paste a link.</p>
-  <input id="fileInput" type="file" accept=".epub,.pdf,.txt,.text,.md" hidden>
-  <input id="backupInput" type="file" accept=".json,application/json" hidden>
-</div>
+</main>
 
-<div id="reader" class="screen" hidden>
-  <header>
-    <button id="back">&larr;</button>
+<main id="highlightsView" class="view" hidden>
+  <div class="titlebar"><h1>Highlights</h1></div>
+  <div id="hlList"></div>
+</main>
+
+<main id="settingsView" class="view" hidden>
+  <div class="titlebar"><h1>Settings</h1></div>
+  <div id="settingsBody"></div>
+</main>
+
+<nav id="tabbar">
+  <button data-view="library" class="on"><span data-ic="book"></span><i>Library</i></button>
+  <button data-view="highlights"><span data-ic="marker"></span><i>Highlights</i></button>
+  <button data-view="settings"><span data-ic="sliders"></span><i>Settings</i></button>
+</nav>
+
+<section id="reader">
+  <div class="topbar">
+    <button class="round flat" id="back" aria-label="Back"><span data-ic="back"></span></button>
     <span id="rtitle"></span>
-    <button id="gear">Aa</button>
-  </header>
-  <div id="page"><div id="content"></div></div>
-  <div id="panel" hidden>
-    <div class="row">
-      <button data-theme="paper">Paper</button>
-      <button data-theme="dusk">Dusk</button>
-      <button data-theme="ink">Ink</button>
-    </div>
-    <label>Light <input type="range" id="light" min="5" max="100"></label>
-    <label>Contrast <input type="range" id="contrast" min="0" max="100"></label>
-    <label>Warmth <input type="range" id="warmth" min="0" max="100"></label>
-    <label>Grain <input type="range" id="grain" min="0" max="100"></label>
-    <label>Text size <input type="range" id="size" min="14" max="30"></label>
-    <div class="row">
-      <select id="font">
-        <option value="Georgia,serif">Serif</option>
-        <option value="system-ui,sans-serif">Sans</option>
-        <option value="'Courier New',monospace">Mono</option>
-      </select>
-      <select id="width">
-        <option value="100">Full page</option>
-        <option value="80">80%</option>
-        <option value="60">60%</option>
-        <option value="40">40%</option>
-      </select>
-    </div>
-    <p id="stats" class="muted"></p>
-    <div class="row"><button id="finish">Mark finished</button></div>
+    <button class="round flat" id="rshare" aria-label="Share"><span data-ic="share"></span></button>
+    <button class="round flat" id="gear" aria-label="Reading settings"><b>Aa</b></button>
   </div>
-</div>
+  <div id="page"><div id="content"></div></div>
+  <div class="bottombar">
+    <input id="scrub" type="range" min="0" max="1000" value="0">
+    <span id="pct">0%</span>
+  </div>
+  <div id="selbar" hidden>
+    <button id="hlBtn"><span data-ic="marker"></span>Highlight</button>
+    <button id="quoteBtn"><span data-ic="share"></span>Share</button>
+  </div>
+</section>
 
-<button id="hl" hidden>Highlight</button>
+<div id="backdrop"><div id="sheet"></div></div>
+<div id="toast"></div>
+<input id="fileInput" type="file" accept=".epub,.pdf,.txt,.text,.md" hidden>
+<input id="backupInput" type="file" accept=".json,application/json" hidden>
+
 <div id="dim"></div><div id="warm"></div><div id="grainLayer"></div>
 <script src="jszip.min.js"></script>
 <script src="pdf.min.js"></script>

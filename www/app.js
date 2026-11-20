@@ -1,5 +1,27 @@
 'use strict';
-const $ = (s) => document.querySelector(s);
+const $ = (s, r = document) => r.querySelector(s);
+const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+
+// ---------- icons ----------
+const IC = {
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  search: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/>',
+  sliders: '<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
+  book: '<path d="M5 4h10a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h10"/>',
+  marker: '<path d="M4 20h6l10-10-6-6L4 14z"/><path d="M13 5l6 6"/>',
+  share: '<path d="M12 15V4M8 8l4-4 4 4"/><path d="M5 12v7h14v-7"/>',
+  back: '<path d="M15 5l-7 7 7 7"/>',
+  dots: '<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>',
+  trash: '<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/>',
+  check: '<path d="M5 13l4 4 10-10"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>',
+  leaf: '<path d="M5 19C5 9 11 4 20 4c0 9-5 15-13 15M5 19l8-8"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  file: '<path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/>',
+  open: '<path d="M5 4h10a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/>',
+};
+const icon = (n) => `<svg viewBox="0 0 24 24" class="ic">${IC[n]}</svg>`;
+const paintIcons = (root = document) => root.querySelectorAll('[data-ic]').forEach((e) => { e.innerHTML = icon(e.dataset.ic); });
 
 // ---------- storage (IndexedDB) ----------
 let db;
@@ -15,9 +37,11 @@ const tx = (m) => db.transaction('items', m).objectStore('items');
 const req = (r) => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
 const allItems = () => req(tx('readonly').getAll());
 const putItem = (it) => req(tx('readwrite').put(it));
+const delItem = (id) => req(tx('readwrite').delete(id));
+const clearItems = () => req(tx('readwrite').clear());
 
 // ---------- settings ----------
-const defaults = { theme: 'paper', light: 100, contrast: 50, warmth: 0, grain: 0, size: 19, font: 'Georgia,serif', width: '100' };
+const defaults = { theme: 'paper', light: 100, contrast: 100, warmth: 0, grain: 0, size: 19, font: "'Noto Serif',Georgia,serif", width: '100' };
 let S = Object.assign({}, defaults, JSON.parse(localStorage.getItem('leafS') || '{}'));
 function applySettings() {
   document.body.className = S.theme;
@@ -28,34 +52,114 @@ function applySettings() {
   $('#dim').style.opacity = ((100 - S.light) / 100) * 0.85;
   $('#warm').style.opacity = (S.warmth / 100) * 0.4;
   $('#grainLayer').style.opacity = (S.grain / 100) * 0.35;
-  $('#content').style.opacity = 0.6 + (S.contrast / 100) * 0.4;
+  $('#content').style.opacity = 0.55 + (S.contrast / 100) * 0.45;
   localStorage.setItem('leafS', JSON.stringify(S));
 }
 
+// ---------- small helpers ----------
+let toastTimer;
+function toast(msg, ms = 2200) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+}
+const esc = (s) => s.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+const textOf = (html) => { const d = document.createElement('div'); d.innerHTML = html; return d.textContent.toLowerCase(); };
+const hash = (s) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; };
+
+// ---------- back button: every screen layer is closed with history.back() ----------
+const closers = []; let pendingAfter = null;
+function pushLayer(fn) { history.pushState({ l: closers.length + 1 }, ''); closers.push(fn); }
+function closeLayer(after) { pendingAfter = after || null; history.back(); }
+window.addEventListener('popstate', () => {
+  const f = closers.pop(); if (f) f();
+  if (pendingAfter) { const a = pendingAfter; pendingAfter = null; a(); }
+});
+
+// ---------- sheets ----------
+function openSheet(node, clear) {
+  const b = $('#backdrop');
+  $('#sheet').innerHTML = ''; $('#sheet').appendChild(node);
+  b.classList.toggle('clear', !!clear);
+  requestAnimationFrame(() => b.classList.add('show'));
+  pushLayer(() => b.classList.remove('show'));
+}
+function actionSheet(title, actions) {
+  const box = el('div');
+  if (title) box.appendChild(el('div', 'sheet-title')).textContent = title;
+  const grp = el('div', 'group');
+  actions.forEach((a) => {
+    const b = el('button', 'act' + (a.danger ? ' danger' : ''), (a.ic ? icon(a.ic) : '') + '<span></span>');
+    b.querySelector('span').textContent = a.label;
+    b.onclick = () => { if (a.now) a.run(); closeLayer(a.now ? null : a.run); };
+    grp.appendChild(b);
+  });
+  box.appendChild(grp);
+  const c = el('button', 'cancel', 'Cancel'); c.onclick = () => closeLayer();
+  box.appendChild(c);
+  openSheet(box);
+}
+$('#backdrop').addEventListener('click', (e) => { if (e.target.id === 'backdrop') closeLayer(); });
+
+// ---------- sharing ----------
+async function shareText({ title, text, url }) {
+  const P = window.Capacitor && window.Capacitor.Plugins;
+  try {
+    if (P && P.Share) { await P.Share.share({ title, text, url, dialogTitle: 'Share' }); return; }
+    if (navigator.share) { await navigator.share({ title, text, url }); return; }
+  } catch (e) { if (/cancel|abort/i.test((e && e.message) || '')) return; }
+  try { await navigator.clipboard.writeText([text, url].filter(Boolean).join('\n')); toast('Copied to clipboard'); }
+  catch (e) { toast('Sharing is not available'); }
+}
+function shareItem(it) {
+  const q = (it.highlights || []).map((h) => '\u201C' + h.text + '\u201D').join('\n\n');
+  shareText({ title: it.title, text: it.title + (q ? '\n\n' + q : ''), url: it.url });
+}
+
 // ---------- importing ----------
-const SAFE = new Set(['P','H1','H2','H3','H4','H5','H6','BLOCKQUOTE','LI','UL','OL','EM','I','STRONG','B','BR','PRE','CODE','DIV','SPAN','A']);
+const SAFE = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'LI', 'UL', 'OL', 'EM', 'I', 'STRONG', 'B', 'BR', 'PRE', 'CODE']);
 function clean(node) {
   let out = '';
   node.childNodes.forEach((n) => {
-    if (n.nodeType === 3) out += n.textContent.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+    if (n.nodeType === 3) out += esc(n.textContent);
     else if (n.nodeType === 1) {
       const t = n.tagName.toUpperCase();
       if (t === 'SCRIPT' || t === 'STYLE') return;
       const inner = clean(n);
-      if (SAFE.has(t) && t !== 'A' && t !== 'SPAN' && t !== 'DIV') out += `<${t.toLowerCase()}>${inner}</${t.toLowerCase()}>`;
-      else out += inner;
+      out += SAFE.has(t) ? `<${t.toLowerCase()}>${inner}</${t.toLowerCase()}>` : inner;
     }
   });
   return out;
 }
-const textOf = (html) => { const d = document.createElement('div'); d.innerHTML = html; return d.textContent.toLowerCase(); };
-const esc = (s) => s.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
-
-function dirOf(p) { const i = p.lastIndexOf('/'); return i < 0 ? '' : p.slice(0, i + 1); }
+const dirOf = (p) => { const i = p.lastIndexOf('/'); return i < 0 ? '' : p.slice(0, i + 1); };
 function resolve(base, rel) {
   const parts = (base + decodeURIComponent(rel.split('#')[0])).split('/'); const out = [];
   for (const p of parts) { if (p === '..') out.pop(); else if (p && p !== '.') out.push(p); }
   return out.join('/');
+}
+function shrink(blob) {
+  return new Promise((res) => {
+    const img = new Image(), u = URL.createObjectURL(blob);
+    img.onload = () => {
+      const w = 260, h = Math.round(img.height * w / img.width);
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h); URL.revokeObjectURL(u); res(c.toDataURL('image/jpeg', 0.78));
+    };
+    img.onerror = () => res(null); img.src = u;
+  });
+}
+async function epubCover(zip, opf, base) {
+  try {
+    let href;
+    const ci = opf.querySelector('manifest > item[properties~="cover-image"]');
+    if (ci) href = ci.getAttribute('href');
+    else {
+      const meta = [...opf.getElementsByTagName('meta')].find((m) => m.getAttribute('name') === 'cover');
+      if (meta) { const it = [...opf.querySelectorAll('manifest > item')].find((i) => i.getAttribute('id') === meta.getAttribute('content')); if (it) href = it.getAttribute('href'); }
+    }
+    if (!href) return null;
+    const f = zip.file(resolve(base, href)); if (!f) return null;
+    return await shrink(new Blob([await f.async('uint8array')]));
+  } catch (e) { return null; }
 }
 async function parseEpub(file) {
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
@@ -69,14 +173,12 @@ async function parseEpub(file) {
   opf.querySelectorAll('manifest > item').forEach((i) => { manifest[i.getAttribute('id')] = i.getAttribute('href'); });
   let html = '';
   for (const ref of opf.querySelectorAll('spine > itemref')) {
-    const href = manifest[ref.getAttribute('idref')];
-    if (!href) continue;
-    const f = zip.file(resolve(base, href));
-    if (!f) continue;
+    const href = manifest[ref.getAttribute('idref')]; if (!href) continue;
+    const f = zip.file(resolve(base, href)); if (!f) continue;
     const doc = new DOMParser().parseFromString(await f.async('string'), 'text/html');
     html += clean(doc.body) + '<hr>';
   }
-  return { title: title.trim(), kind: 'book', html };
+  return { title: title.trim(), kind: 'book', html, cover: await epubCover(zip, opf, base) };
 }
 async function parseText(file) {
   const t = await file.text();
@@ -89,8 +191,7 @@ async function parsePdf(file) {
   let html = '';
   for (let n = 1; n <= pdf.numPages; n++) {
     const tc = await (await pdf.getPage(n)).getTextContent();
-    let line = '', lastY = null;
-    const paras = [];
+    let line = '', lastY = null; const paras = [];
     for (const it of tc.items) {
       const y = it.transform[5];
       if (lastY !== null && Math.abs(y - lastY) > 2) {
@@ -117,59 +218,25 @@ async function parseLink(url) {
   return { title: title.trim(), kind: 'article', html: clean(best), url };
 }
 async function addItem(p) {
-  const it = Object.assign({ id: 'i' + Date.now(), progress: 0, finished: false, added: Date.now(), lastRead: 0, seconds: 0 }, p);
+  const it = Object.assign({ id: 'i' + Date.now() + Math.floor(Math.random() * 999), progress: 0, finished: false, added: Date.now(), lastRead: 0, seconds: 0, highlights: [] }, p);
   it.search = (it.title + ' ' + textOf(it.html)).toLowerCase();
   await putItem(it);
   renderList();
 }
-
-// ---------- library ----------
-let tab = 'all', kind = 'all';
-async function renderList() {
-  const q = $('#search').value.trim().toLowerCase();
-  let items = await allItems();
-  items = items.filter((i) =>
-    (kind === 'all' || i.kind === kind) &&
-    (tab === 'all' || (tab === 'finished' ? i.finished : !i.finished && i.progress > 0)) &&
-    (!q || i.search.includes(q)));
-  items.sort($('#sort').value === 'az' ? (a, b) => a.title.localeCompare(b.title) : (a, b) => (b.lastRead || b.added) - (a.lastRead || a.added));
-  $('#list').innerHTML = '';
-  $('#empty').hidden = items.length > 0;
-  items.forEach((i) => {
-    const li = document.createElement('li');
-    const m = Math.round(i.seconds / 60);
-    li.innerHTML = `<b></b><small>${i.kind} &middot; ${i.finished ? 'finished' : Math.round(i.progress * 100) + '%'} &middot; ${m} min read</small><div class="bar"><i style="width:${Math.round(i.progress * 100)}%"></i></div>`;
-    li.querySelector('b').textContent = i.title;
-    li.onclick = () => openReader(i);
-    $('#list').appendChild(li);
-  });
+async function importFile(f) {
+  toast('Adding\u2026', 8000);
+  try {
+    await addItem(/\.epub$/i.test(f.name) ? await parseEpub(f) : /\.pdf$/i.test(f.name) ? await parsePdf(f) : await parseText(f));
+    toast('Added to your library');
+  } catch (err) { toast('Could not open this file: ' + err.message, 4500); }
 }
-function wireLibrary() {
-  $('#addFile').onclick = () => $('#fileInput').click();
-  $('#fileInput').onchange = async (e) => {
-    const f = e.target.files[0]; e.target.value = '';
-    if (!f) return;
-    try { await addItem(/\.epub$/i.test(f.name) ? await parseEpub(f) : /\.pdf$/i.test(f.name) ? await parsePdf(f) : await parseText(f)); }
-    catch (err) { alert('Could not open this file: ' + err.message); }
-  };
-  $('#addLink').onclick = async () => {
-    const url = prompt('Paste a link');
-    if (!url) return;
-    try { await addItem(await parseLink(url.trim())); } catch (err) { alert('Could not fetch this link: ' + err.message); }
-  };
-  $('#backup').onclick = exportBackup;
-  $('#restore').onclick = () => $('#backupInput').click();
-  $('#backupInput').onchange = async (e) => {
-    const f = e.target.files[0]; e.target.value = '';
-    if (f) try { await importBackup(f); } catch (err) { alert('Could not restore: ' + err.message); }
-  };
-  $('#search').oninput = renderList;
-  $('#sort').onchange = renderList;
-  document.querySelectorAll('#tabs button').forEach((b) => b.onclick = () => { tab = b.dataset.tab; document.querySelectorAll('#tabs button').forEach((x) => x.classList.toggle('on', x === b)); renderList(); });
-  document.querySelectorAll('#kinds button').forEach((b) => b.onclick = () => { kind = b.dataset.kind; document.querySelectorAll('#kinds button').forEach((x) => x.classList.toggle('on', x === b)); renderList(); });
+async function importLink(url) {
+  toast('Saving link\u2026', 8000);
+  try { await addItem(await parseLink(url)); toast('Saved to your library'); }
+  catch (err) { toast('Could not save this link: ' + err.message, 4500); }
 }
 
-// ---------- backup / move to another device ----------
+// ---------- backup ----------
 async function exportBackup() {
   const json = JSON.stringify({ v: 1, items: await allItems() });
   const name = 'leaf-backup-' + new Date().toISOString().slice(0, 10) + '.json';
@@ -177,13 +244,11 @@ async function exportBackup() {
   try {
     if (P && P.Filesystem && P.Share) {
       const r = await P.Filesystem.writeFile({ path: name, data: json, directory: 'CACHE', encoding: 'utf8' });
-      await P.Share.share({ title: name, url: r.uri });
-      return;
+      await P.Share.share({ title: name, url: r.uri }); return;
     }
   } catch (e) { /* fall back to a plain download */ }
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
-  a.download = name; a.click();
+  a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' })); a.download = name; a.click();
 }
 async function importBackup(file) {
   const data = JSON.parse(await file.text());
@@ -198,8 +263,7 @@ async function importBackup(file) {
     win.finished = old.finished || inc.finished;
     await putItem(win);
   }
-  renderList();
-  alert('Restored.');
+  renderList(); toast('Library restored');
 }
 
 // ---------- shared from other apps ----------
@@ -207,20 +271,202 @@ async function drainShared() {
   const q = window.__q || []; window.__q = [];
   for (const t of q) {
     const m = t.match(/https?:\/\/\S+/);
-    try {
-      if (m) await addItem(await parseLink(m[0]));
-      else await addItem({ title: t.slice(0, 40), kind: 'document', html: '<p>' + esc(t) + '</p>' });
-      alert('Saved to Leaf Reader');
-    } catch (err) { alert('Could not save this link: ' + err.message); }
+    if (m) await importLink(m[0]);
+    else { await addItem({ title: t.slice(0, 40), kind: 'document', html: '<p>' + esc(t) + '</p>' }); toast('Saved to your library'); }
   }
 }
 window.__shared = drainShared;
 
-// ---------- highlights ----------
-const textNodes = (root) => { const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT); const a = []; let n; while ((n = w.nextNode())) a.push(n); return a; };
-function offsetOf(root, node, off) {
-  const r = document.createRange(); r.selectNodeContents(root); r.setEnd(node, off); return r.toString().length;
+// ---------- library ----------
+let tab = 'all', kind = 'all', sortMode = 'recent';
+function coverNode(it, small) {
+  const h = 90 + (hash(it.title) % 150);
+  const c = el('div', 'cover');
+  c.style.background = `linear-gradient(150deg,hsl(${h},38%,60%),hsl(${(h + 30) % 360},42%,42%))`;
+  if (it.cover) { const im = el('img'); im.src = it.cover; im.alt = ''; c.appendChild(im); }
+  else {
+    const t = el('div', 'ct'); t.textContent = it.title; c.appendChild(t);
+    c.appendChild(el('div', 'ck', icon(it.kind === 'article' ? 'link' : it.kind === 'book' ? 'leaf' : 'file')));
+  }
+  return c;
 }
+const pctOf = (it) => it.finished ? 100 : Math.round(it.progress * 100);
+async function renderList() {
+  const q = $('#search').value.trim().toLowerCase();
+  const everything = await allItems();
+  let items = everything.filter((i) =>
+    (kind === 'all' || i.kind === kind) &&
+    (tab === 'all' || (tab === 'finished' ? i.finished : !i.finished && i.progress > 0)) &&
+    (!q || i.search.includes(q)));
+  items.sort(sortMode === 'az' ? (a, b) => a.title.localeCompare(b.title) : (a, b) => (b.lastRead || b.added) - (a.lastRead || a.added));
+  $('#sortBtn').textContent = sortMode === 'az' ? 'A to Z' : 'Recent';
+  $('#empty').hidden = everything.length > 0;
+  $('#tabs').hidden = $('#kinds').hidden = $('.search').hidden = everything.length === 0;
+
+  // continue reading card
+  const hero = $('#hero'); hero.innerHTML = '';
+  const cont = everything.filter((i) => !i.finished && i.progress > 0 && i.lastRead).sort((a, b) => b.lastRead - a.lastRead)[0];
+  if (cont && tab === 'all' && kind === 'all' && !q) {
+    const h = el('div', 'hero');
+    h.appendChild(coverNode(cont));
+    const m = el('div', 'meta', '<small>Continue reading</small><b></b><span class="prog"></span><div class="pbar"><i></i></div>');
+    m.querySelector('b').textContent = cont.title;
+    m.querySelector('.prog').textContent = pctOf(cont) + '% \u00B7 ' + Math.round(cont.seconds / 60) + ' min read';
+    m.querySelector('i').style.width = pctOf(cont) + '%';
+    h.appendChild(m); h.onclick = () => openReader(cont); hero.appendChild(h);
+  }
+
+  const grid = $('#grid'); grid.innerHTML = '';
+  items.forEach((it) => {
+    const card = el('div', 'card');
+    const cv = coverNode(it); card.appendChild(cv);
+    if (it.finished) cv.appendChild(el('div', 'badge', 'Finished'));
+    const dots = el('button', 'dots', icon('dots')); dots.setAttribute('aria-label', 'More');
+    dots.onclick = (e) => { e.stopPropagation(); itemMenu(it); };
+    cv.appendChild(dots);
+    const info = el('div', 'cinfo', '<b></b><small><span></span><span></span></small><div class="pbar"><i></i></div>');
+    info.querySelector('b').textContent = it.title;
+    const sp = info.querySelectorAll('small span');
+    sp[0].textContent = it.kind === 'article' ? 'Article' : it.kind === 'book' ? 'Book' : 'Document';
+    sp[1].textContent = it.finished ? 'Done' : it.progress > 0 ? pctOf(it) + '%' : 'New';
+    info.querySelector('i').style.width = pctOf(it) + '%';
+    card.appendChild(info);
+    card.onclick = () => openReader(it);
+    let lp; // long press opens the menu
+    card.addEventListener('touchstart', () => { lp = setTimeout(() => { lp = null; itemMenu(it); }, 550); }, { passive: true });
+    ['touchend', 'touchmove', 'touchcancel'].forEach((ev) => card.addEventListener(ev, () => clearTimeout(lp), { passive: true }));
+    grid.appendChild(card);
+  });
+  if (everything.length && !items.length) grid.appendChild(el('p', 'note', 'Nothing matches. Try another search or filter.'));
+}
+function itemMenu(it) {
+  actionSheet(it.title, [
+    { label: 'Open', ic: 'open', run: () => openReader(it) },
+    { label: 'Share', ic: 'share', run: () => shareItem(it) },
+    { label: it.finished ? 'Mark as unfinished' : 'Mark as finished', ic: 'check', run: async () => { it.finished = !it.finished; if (!it.finished && it.progress >= 0.99) it.progress = 0; await putItem(it); renderList(); } },
+    { label: 'Delete', ic: 'trash', danger: true, run: () => confirmDelete(it) },
+  ]);
+}
+function confirmDelete(it) {
+  actionSheet('Delete \u201C' + it.title + '\u201D and its highlights? This cannot be undone.', [
+    { label: 'Delete', ic: 'trash', danger: true, run: async () => { await delItem(it.id); toast('Deleted'); renderList(); } },
+  ]);
+}
+function addMenu() {
+  actionSheet('Add to your library', [
+    { label: 'Choose a file (EPUB, PDF, TXT)', ic: 'file', now: true, run: () => $('#fileInput').click() },
+    { label: 'Paste a web link', ic: 'link', run: linkSheet },
+  ]);
+}
+function linkSheet() {
+  const box = el('div', 'linkbox', '<h3>Add a web link</h3><input type="url" placeholder="https://" autocapitalize="off"><button class="primary">Save to library</button><button class="cancel">Cancel</button>');
+  const input = $('input', box);
+  $('.primary', box).onclick = () => { const u = input.value.trim(); if (!u) return; closeLayer(() => importLink(u)); };
+  $('.cancel', box).onclick = () => closeLayer();
+  openSheet(box);
+  setTimeout(() => input.focus(), 350);
+}
+function wireLibrary() {
+  $('#addBtn').onclick = addMenu; $('#emptyAdd').onclick = addMenu;
+  $('#fileInput').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importFile(f); };
+  $('#backupInput').onchange = async (e) => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (f) try { await importBackup(f); } catch (err) { toast('Could not restore: ' + err.message, 4000); }
+  };
+  $('#search').oninput = renderList;
+  $('#sortBtn').onclick = () => actionSheet('Sort by', [
+    { label: 'Recently read', run: () => { sortMode = 'recent'; renderList(); } },
+    { label: 'Title, A to Z', run: () => { sortMode = 'az'; renderList(); } },
+  ]);
+  document.querySelectorAll('#tabs button').forEach((b) => b.onclick = () => { tab = b.dataset.tab; document.querySelectorAll('#tabs button').forEach((x) => x.classList.toggle('on', x === b)); renderList(); });
+  document.querySelectorAll('#kinds button[data-kind]').forEach((b) => b.onclick = () => { kind = b.dataset.kind; document.querySelectorAll('#kinds button[data-kind]').forEach((x) => x.classList.toggle('on', x === b)); renderList(); });
+  document.querySelectorAll('#tabbar button').forEach((b) => b.onclick = () => showView(b.dataset.view));
+}
+
+// ---------- tabs: library / highlights / settings ----------
+function showView(v) {
+  ['library', 'highlights', 'settings'].forEach((n) => { $('#' + n + 'View').hidden = n !== v; });
+  document.querySelectorAll('#tabbar button').forEach((b) => b.classList.toggle('on', b.dataset.view === v));
+  if (v === 'library') renderList(); else if (v === 'highlights') renderHighlights(); else renderSettings();
+}
+async function renderHighlights() {
+  const host = $('#hlList'); host.innerHTML = '';
+  const items = (await allItems()).filter((i) => (i.highlights || []).length);
+  if (!items.length) { host.appendChild(el('div', 'empty', '<div class="empty-leaf">' + icon('marker') + '</div><h2>No highlights yet</h2><p>While reading, select some text and tap Highlight. It will show up here.</p>')); return; }
+  items.forEach((it) => {
+    host.appendChild(el('div', 'hl-book')).textContent = it.title;
+    const g = el('div', 'group');
+    it.highlights.forEach((h, idx) => {
+      const row = el('div', 'hl-item', '<q></q><button aria-label="Delete highlight">' + icon('x') + '</button>');
+      $('q', row).textContent = h.text;
+      row.onclick = () => openReader(it, { jump: idx });
+      $('button', row).onclick = async (e) => { e.stopPropagation(); it.highlights.splice(idx, 1); await putItem(it); renderHighlights(); };
+      g.appendChild(row);
+    });
+    host.appendChild(g);
+  });
+}
+
+// ---------- controls (used in Settings and in the reader sheet) ----------
+function buildControls(host) {
+  host.innerHTML = '';
+  const g = el('div', 'group');
+  const themeRow = el('div', 'line seg-line', '<div class="segmented" style="width:100%"></div>');
+  const seg = $('.segmented', themeRow);
+  [['paper', 'Paper'], ['dusk', 'Dusk'], ['ink', 'Ink']].forEach(([k, name]) => {
+    const b = el('button', S.theme === k ? 'on' : '', name);
+    b.onclick = () => { S.theme = k; applySettings(); seg.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); };
+    seg.appendChild(b);
+  });
+  g.appendChild(themeRow);
+  const slider = (label, key, min, max) => {
+    const l = el('label', 'line', '<span></span><input type="range">'); $('span', l).textContent = label;
+    const r = $('input', l); r.min = min; r.max = max; r.value = S[key];
+    r.oninput = () => { S[key] = +r.value; applySettings(); }; g.appendChild(l);
+  };
+  slider('Light', 'light', 5, 100); slider('Contrast', 'contrast', 0, 100);
+  slider('Warmth', 'warmth', 0, 100); slider('Grain', 'grain', 0, 100); slider('Text size', 'size', 14, 30);
+  const select = (label, key, opts) => {
+    const l = el('label', 'line', '<span></span><select></select>'); $('span', l).textContent = label;
+    const s = $('select', l);
+    opts.forEach(([v, n]) => { const o = el('option'); o.value = v; o.textContent = n; s.appendChild(o); });
+    s.value = S[key]; s.onchange = () => { S[key] = s.value; applySettings(); }; g.appendChild(l);
+  };
+  select('Font', 'font', [["'Noto Serif',Georgia,serif", 'Serif'], ["system-ui,'Roboto',sans-serif", 'Sans'], ["'Courier New',monospace", 'Mono']]);
+  select('Page width', 'width', [['100', 'Full page'], ['80', '80%'], ['60', '60%'], ['40', '40%']]);
+  host.appendChild(g);
+}
+async function renderSettings() {
+  const host = $('#settingsBody'); host.innerHTML = '';
+  host.appendChild(el('div', 'gh', 'Appearance'));
+  const ctl = el('div'); host.appendChild(ctl); buildControls(ctl);
+
+  const items = await allItems();
+  const secs = items.reduce((a, i) => a + (i.seconds || 0), 0);
+  const nHl = items.reduce((a, i) => a + (i.highlights || []).length, 0);
+  host.appendChild(el('div', 'gh', 'Your reading'));
+  const st = el('div', 'group', `<div class="line"><span>Items</span><span class="val">${items.length}</span></div><div class="line"><span>Time reading</span><span class="val">${Math.floor(secs / 3600)} h ${Math.round((secs % 3600) / 60)} min</span></div><div class="line"><span>Highlights</span><span class="val">${nHl}</span></div>`);
+  host.appendChild(st);
+
+  host.appendChild(el('div', 'gh', 'Your library'));
+  const lib = el('div', 'group');
+  const line = (label, ic, fn, danger) => { const b = el('button', 'line' + (danger ? ' danger' : ''), '<span></span>' + icon(ic)); $('span', b).textContent = label; b.onclick = fn; lib.appendChild(b); };
+  line('Back up library', 'share', exportBackup);
+  line('Restore from backup', 'file', () => $('#backupInput').click());
+  line('Delete all books', 'trash', () => actionSheet('Delete every book, article and highlight from this phone? This cannot be undone.', [
+    { label: 'Delete everything', ic: 'trash', danger: true, run: async () => { await clearItems(); toast('Library cleared'); renderSettings(); } },
+  ]), true);
+  host.appendChild(lib);
+  host.appendChild(el('p', 'note', 'To use Leaf Reader on another phone: back up here, send the file to the other phone, then restore it there.'));
+
+  host.appendChild(el('div', 'gh', 'About'));
+  host.appendChild(el('div', 'group', '<div class="line"><span>Leaf Reader</span><span class="val">1.2</span></div><div class="line"><span>Privacy</span><span class="val">No account, no tracking</span></div>'));
+  host.appendChild(el('p', 'note', 'Everything you add stays on this phone and works offline.'));
+}
+
+// ---------- highlights inside the reader ----------
+const textNodes = (root) => { const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT); const a = []; let n; while ((n = w.nextNode())) a.push(n); return a; };
+function offsetOf(root, node, off) { const r = document.createRange(); r.selectNodeContents(root); r.setEnd(node, off); return r.toString().length; }
 function applyHighlights() {
   const root = $('#content');
   (cur.highlights || []).forEach((h, idx) => {
@@ -236,61 +482,92 @@ function applyHighlights() {
   });
 }
 function renderContent() { $('#content').innerHTML = cur.html; applyHighlights(); }
-function wireHighlights() {
+let lastRange = null, selTimer;
+function wireSelection() {
   document.addEventListener('selectionchange', () => {
-    const s = getSelection(); const c = $('#content');
-    $('#hl').hidden = !(cur && s && !s.isCollapsed && c.contains(s.anchorNode) && c.contains(s.focusNode));
+    const s = getSelection(), c = $('#content');
+    if (cur && s && !s.isCollapsed && s.rangeCount && c.contains(s.anchorNode) && c.contains(s.focusNode)) {
+      clearTimeout(selTimer); lastRange = s.getRangeAt(0).cloneRange(); $('#selbar').hidden = false;
+    } else { clearTimeout(selTimer); selTimer = setTimeout(() => { $('#selbar').hidden = true; }, 450); }
   });
-  $('#hl').onclick = async () => {
-    const s = getSelection(); if (!s.rangeCount) return;
-    const r = s.getRangeAt(0), root = $('#content');
-    const a = offsetOf(root, r.startContainer, r.startOffset), b = offsetOf(root, r.endContainer, r.endOffset);
-    if (b > a) { (cur.highlights = cur.highlights || []).push({ start: a, end: b, text: r.toString().slice(0, 200) }); await putItem(cur); renderContent(); }
-    s.removeAllRanges(); $('#hl').hidden = true;
+  $('#selbar').addEventListener('pointerdown', (e) => e.preventDefault());
+  $('#hlBtn').onclick = async () => {
+    if (!lastRange) return;
+    const root = $('#content');
+    const a = offsetOf(root, lastRange.startContainer, lastRange.startOffset), b = offsetOf(root, lastRange.endContainer, lastRange.endOffset);
+    if (b > a) { (cur.highlights = cur.highlights || []).push({ start: a, end: b, text: lastRange.toString().trim().slice(0, 400) }); await putItem(cur); renderContent(); toast('Highlighted'); }
+    getSelection().removeAllRanges(); $('#selbar').hidden = true; lastRange = null;
   };
-  $('#content').addEventListener('click', async (e) => {
-    const m = e.target.closest('mark');
-    if (m && confirm('Remove this highlight?')) { cur.highlights.splice(+m.dataset.i, 1); await putItem(cur); renderContent(); }
-  });
+  $('#quoteBtn').onclick = () => {
+    if (!lastRange) return;
+    shareText({ title: cur.title, text: '\u201C' + lastRange.toString().trim() + '\u201D\n\n\u2014 ' + cur.title, url: cur.url });
+    getSelection().removeAllRanges(); $('#selbar').hidden = true;
+  };
 }
 
 // ---------- reader ----------
-let cur = null, lastScroll = 0, tick = null, dirty = false;
-function openReader(it) {
-  cur = it;
-  $('#library').hidden = true; $('#reader').hidden = false;
+let cur = null, lastScroll = 0, tick = null, dirty = false, lastTop = 0;
+function openReader(it, opts) {
+  cur = it; it.highlights = it.highlights || [];
   $('#rtitle').textContent = it.title;
   renderContent();
-  $('#panel').hidden = true;
+  const r = $('#reader'); r.classList.remove('chrome-hidden');
+  requestAnimationFrame(() => r.classList.add('open'));
+  pushLayer(closeReaderNow);
   const page = $('#page');
-  requestAnimationFrame(() => { page.scrollTop = it.progress * (page.scrollHeight - page.clientHeight); });
+  setTimeout(() => {
+    if (opts && opts.jump != null) { const m = $(`#content mark[data-i="${opts.jump}"]`); if (m) m.scrollIntoView({ block: 'center' }); }
+    else page.scrollTop = it.progress * (page.scrollHeight - page.clientHeight);
+    lastTop = page.scrollTop; updateProgress();
+  }, 60);
   it.lastRead = Date.now();
   tick = setInterval(() => {
-    // time counts only while pages are moving (scrolled in the last 20 seconds)
-    if (Date.now() - lastScroll < 20000) { cur.seconds += 5; dirty = true; }
-    if (dirty) { putItem(cur); dirty = false; showStats(); }
+    if (Date.now() - lastScroll < 20000) { cur.seconds += 5; dirty = true; }  // time counts only while pages move
+    if (dirty) { putItem(cur); dirty = false; }
   }, 5000);
 }
-function showStats() { if (cur) $('#stats').textContent = `Read ${Math.round(cur.seconds / 60)} min · ${Math.round(cur.progress * 100)}%`; }
+async function closeReaderNow() {
+  clearInterval(tick); $('#reader').classList.remove('open'); $('#selbar').hidden = true;
+  if (cur) { cur.lastRead = Date.now(); await putItem(cur); }
+  cur = null;
+  if (!$('#libraryView').hidden) renderList();
+  if (!$('#highlightsView').hidden) renderHighlights();
+}
+function updateProgress() {
+  if (!cur) return;
+  const p = $('#page'), max = p.scrollHeight - p.clientHeight;
+  cur.progress = max > 0 ? Math.min(1, p.scrollTop / max) : 1;
+  $('#pct').textContent = Math.round(cur.progress * 100) + '%';
+  $('#scrub').value = Math.round(cur.progress * 1000);
+}
 function wireReader() {
-  $('#page').onscroll = () => {
-    const p = $('#page'); const max = p.scrollHeight - p.clientHeight;
-    cur.progress = max > 0 ? Math.min(1, p.scrollTop / max) : 1;
-    lastScroll = Date.now(); dirty = true;
+  const page = $('#page');
+  page.onscroll = () => {
+    updateProgress(); lastScroll = Date.now(); dirty = true;
+    if (cur && cur.progress >= 0.995) cur.finished = true;
+    if (Math.abs(page.scrollTop - lastTop) > 14) $('#reader').classList.add('chrome-hidden');
+    lastTop = page.scrollTop;
   };
-  $('#back').onclick = async () => {
-    clearInterval(tick); if (cur) { cur.lastRead = Date.now(); await putItem(cur); }
-    cur = null; $('#reader').hidden = true; $('#library').hidden = false; renderList();
+  page.addEventListener('click', (e) => {
+    if (getSelection().toString()) return;
+    const m = e.target.closest('mark');
+    if (m) {
+      actionSheet('Highlight', [{ label: 'Remove highlight', ic: 'trash', danger: true, run: async () => { cur.highlights.splice(+m.dataset.i, 1); await putItem(cur); renderContent(); } }]);
+      return;
+    }
+    $('#reader').classList.toggle('chrome-hidden');
+  });
+  $('#scrub').oninput = (e) => { const max = page.scrollHeight - page.clientHeight; page.scrollTop = (+e.target.value / 1000) * max; };
+  $('#back').onclick = () => closeLayer();
+  $('#rshare').onclick = () => shareItem(cur);
+  $('#gear').onclick = () => {
+    const box = el('div'); box.appendChild(el('div', 'sheet-title', 'Reading settings'));
+    const host = el('div'); box.appendChild(host); buildControls(host); openSheet(box, true);
   };
-  $('#gear').onclick = () => { $('#panel').hidden = !$('#panel').hidden; showStats(); };
-  $('#page').onclick = () => { $('#panel').hidden = true; };
-  $('#finish').onclick = () => { cur.finished = !cur.finished; putItem(cur); $('#finish').textContent = cur.finished ? 'Mark unfinished' : 'Mark finished'; };
-  document.querySelectorAll('[data-theme]').forEach((b) => b.onclick = () => { S.theme = b.dataset.theme; applySettings(); });
-  for (const k of ['light', 'contrast', 'warmth', 'grain', 'size']) {
-    const el = $('#' + k); el.value = S[k]; el.oninput = () => { S[k] = +el.value; applySettings(); };
-  }
-  $('#font').value = S.font; $('#font').onchange = (e) => { S.font = e.target.value; applySettings(); };
-  $('#width').value = S.width; $('#width').onchange = (e) => { S.width = e.target.value; applySettings(); };
 }
 
-(async () => { await openDb(); wireLibrary(); wireReader(); wireHighlights(); applySettings(); renderList(); drainShared(); })();
+// ---------- start ----------
+(async () => {
+  paintIcons(); await openDb(); wireLibrary(); wireReader(); wireSelection();
+  applySettings(); renderList(); drainShared();
+})();
