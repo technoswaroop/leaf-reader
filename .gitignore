@@ -3,3 +3,5 @@ android/
 www/jszip.min.js
 www/pdf.min.js
 www/pdf.worker.min.js
+www/cmaps
+www/standard_fonts

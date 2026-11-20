@@ -1,4 +1,4 @@
-// Runs in the cloud build after "cap add android".
+﻿// Runs in the cloud build after "cap add android".
 // 1) lets other apps share links/text/files to Leaf Reader  2) passes shared text to the web page.
 const fs = require('fs');
 const path = require('path');
@@ -20,6 +20,7 @@ fs.mkdirSync(javaRoot, { recursive: true });
 fs.writeFileSync(path.join(javaRoot, 'MainActivity.java'), `package com.leafreader.app;
 
 import android.content.Intent;
+import androidx.activity.OnBackPressedCallback;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -30,6 +31,14 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                getBridge().getWebView().evaluateJavascript("(window.__back ? window.__back() : false)", v -> {
+                    if (!"true".equals(v)) moveTaskToBack(true);
+                });
+            }
+        });
         new Handler(Looper.getMainLooper()).postDelayed(() -> pass(getIntent()), 1500);
     }
 

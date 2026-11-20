@@ -1,4 +1,4 @@
-name: build-apk
+﻿name: build-apk
 on:
   push:
   workflow_dispatch:
@@ -17,6 +17,7 @@ jobs:
       - run: npm install
       - run: cp node_modules/jszip/dist/jszip.min.js www/jszip.min.js
       - run: cp node_modules/pdfjs-dist/build/pdf.min.js www/pdf.min.js && cp node_modules/pdfjs-dist/build/pdf.worker.min.js www/pdf.worker.min.js
+      - run: cp -r node_modules/pdfjs-dist/cmaps www/cmaps && cp -r node_modules/pdfjs-dist/standard_fonts www/standard_fonts
       - run: npx cap add android
       - run: node scripts/patch-android.js
       - run: npx cap sync android

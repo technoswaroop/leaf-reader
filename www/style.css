@@ -138,3 +138,29 @@ mark{background:rgba(242,197,60,.45);color:inherit;border-radius:3px}
 #dim{background:#000;opacity:0}
 #warm{background:#ff9a3c;mix-blend-mode:multiply;opacity:0}
 #grainLayer{opacity:0;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9'/></filter><rect width='120' height='120' filter='url(%23n)'/></svg>")}
+
+/* ---------- page flip (books, articles) ---------- */
+#page.paged{overflow:hidden;padding:60px 24px 46px;touch-action:none}
+#page.paged #content{max-width:none;margin:0;will-change:transform;text-align:justify;text-justify:inter-word}
+#page.paged #content p{orphans:2;widows:2}
+#page.paged #content hr{break-after:column;border:0;margin:0;height:0;visibility:hidden}
+#pageinfo{position:absolute;left:0;right:0;bottom:calc(14px + env(safe-area-inset-bottom));text-align:center;font-size:12px;color:var(--muted);z-index:3;pointer-events:none;font-variant-numeric:tabular-nums;transition:opacity .25s}
+#reader:not(.chrome-hidden) #pageinfo{opacity:0}
+#pct{width:78px}
+#flipfx{position:absolute;inset:0;pointer-events:none;z-index:4;opacity:0}
+#flipfx.go-next{background:linear-gradient(90deg,rgba(0,0,0,.28),transparent 22%);animation:flipfx .38s ease-out}
+#flipfx.go-prev{background:linear-gradient(270deg,rgba(0,0,0,.28),transparent 22%);animation:flipfx .38s ease-out}
+@keyframes flipfx{0%{opacity:0}35%{opacity:1}100%{opacity:0}}
+
+/* ---------- PDF pages ---------- */
+.pdfstage{position:absolute;inset:0;background:var(--bg)}
+.pdfstage.paged{overflow:hidden;touch-action:none}
+.pdfstage.scroll{overflow-y:auto;padding:calc(64px + env(safe-area-inset-top)) 8px 90px}
+.pdfslot{position:absolute;inset:0;display:grid;place-items:center;padding:6px 8px 36px;background:var(--bg);z-index:1}
+.pdfslot.over{z-index:2}
+.pdfslot canvas,.pdfph canvas{background:#fff;box-shadow:0 6px 24px rgba(0,0,0,.28);border-radius:2px}
+.pdfslot.over canvas{box-shadow:-16px 0 34px rgba(0,0,0,.4),0 6px 24px rgba(0,0,0,.28)}
+.pdfph{margin:0 auto 12px;background:#fff;box-shadow:0 4px 16px rgba(0,0,0,.2);border-radius:2px}
+.pdfph canvas{width:100%;height:100%;display:block;box-shadow:none}
+body.dusk .pdfstage canvas{filter:sepia(.4) brightness(.85)}
+body.ink .pdfstage canvas{filter:invert(.92) hue-rotate(180deg)}
