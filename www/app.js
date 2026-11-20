@@ -19,6 +19,7 @@ const IC = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
   file: '<path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/>',
   open: '<path d="M5 4h10a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/>',
+  fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
 };
 const icon = (n) => `<svg viewBox="0 0 24 24" class="ic">${IC[n]}</svg>`;
 const paintIcons = (root = document) => root.querySelectorAll('[data-ic]').forEach((e) => { e.innerHTML = icon(e.dataset.ic); });
@@ -461,7 +462,7 @@ function buildControls(host) {
     r.oninput = () => { S[key] = +r.value; applySettings(); }; g.appendChild(l);
   };
   slider('Light', 'light', 5, 100); slider('Contrast', 'contrast', 0, 100);
-  slider('Warmth', 'warmth', 0, 100); slider('Grain', 'grain', 0, 100); slider('Text size', 'size', 14, 30);
+  slider('Warmth', 'warmth', 0, 100); slider('Grain', 'grain', 0, 100); slider('Text size', 'size', 14, 34);
   const select = (label, key, opts) => {
     const l = el('label', 'line', '<span></span><select></select>'); $('span', l).textContent = label;
     const s = $('select', l);
@@ -565,7 +566,8 @@ function openReader(it, opts) {
 }
 async function startContent(opts) {
   const p = isPdf();
-  $('#page').hidden = p; $('#pdfStage').hidden = !p;
+  $('#page').hidden = p; $('#pdfStage').hidden = !p; $('#fitBtn').hidden = !p;
+  pz.z = 1; pz.x = 0; pz.y = 0; scrollZoom = 1; pinching = false;
   if (p) {
     try { pdfDoc = await getPdf(await cur.pdf.arrayBuffer()); }
     catch (e) { toast('Could not open this PDF'); closeLayer(); return; }
@@ -688,6 +690,7 @@ async function gotoPdf(n, dir) {
       setTimeout(() => old.remove(), 380);
     } else if (old) old.remove();
     slot.classList.add('cur');
+    fitPdf(false);
     pdfPage = n;
     cur.progress = pdfTotal > 1 ? (n - 1) / (pdfTotal - 1) : 1;
     if (dir) { lastScroll = Date.now(); dirty = true; if (pdfTotal > 1 && n === pdfTotal) cur.finished = true; }
@@ -698,7 +701,7 @@ async function gotoPdf(n, dir) {
 async function buildPdfScroll() {
   const st = $('#pdfStage');
   const p1 = await pdfDoc.getPage(1), v = p1.getViewport({ scale: 1 });
-  const w = st.clientWidth - 16, ratio = v.height / v.width;
+  const w = Math.round((st.clientWidth - 16) * scrollZoom), ratio = v.height / v.width;
   const holder = el('div', 'pdfscroll'); st.appendChild(holder);
   pdfIO = new IntersectionObserver((ents) => {
     ents.forEach((en) => {
@@ -761,6 +764,7 @@ function onTap(e) {
     actionSheet('Highlight', [{ label: 'Remove highlight', ic: 'trash', danger: true, run: async () => { cur.highlights.splice(+m.dataset.i, 1); await putItem(cur); renderContent(); } }]);
     return;
   }
+  if (isPdf() && paged() && pz.z > 1.02) { $('#reader').classList.toggle('chrome-hidden'); return; }
   if (paged()) {
     const x = e.clientX / window.innerWidth;
     if (x < 0.28) return turn(-1);
@@ -771,7 +775,7 @@ function onTap(e) {
 function wireGestures(node, live) {
   let x0 = null, y0 = 0, dx = 0, drag = false, base = 0, sel = false;
   node.addEventListener('touchstart', (e) => {
-    if (!paged() || e.touches.length !== 1) { x0 = null; return; }
+    if (!paged() || e.touches.length !== 1 || pinching || (isPdf() && pz.z > 1.02)) { x0 = null; return; }
     x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; dx = 0; drag = false;
     sel = !!getSelection().toString(); base = live ? -tp.page * (tp.W + GAP) : 0;
   }, { passive: true });
@@ -794,8 +798,108 @@ function wireGestures(node, live) {
     x0 = null; drag = false;
   });
 }
+// --- zoom: pinch in and out, and fit to screen ---
+const pz = { z: 1, x: 0, y: 0 };
+let pinching = false, hiTimer = null, scrollZoom = 1;
+const pdfCv = () => $('#pdfStage .pdfslot.cur canvas');
+function clampPan(cv) {
+  const st = $('#pdfStage');
+  const w = cv.offsetWidth * pz.z, h = cv.offsetHeight * pz.z;
+  const mx = Math.max(0, (w - st.clientWidth) / 2 + 8), my = Math.max(0, (h - st.clientHeight) / 2 + 8);
+  pz.x = Math.max(-mx, Math.min(mx, pz.x)); pz.y = Math.max(-my, Math.min(my, pz.y));
+  if (w <= st.clientWidth) pz.x = 0;
+  if (h <= st.clientHeight) pz.y = 0;
+}
+function applyPz(cv) {
+  clampPan(cv);
+  cv.style.transform = pz.z === 1 && !pz.x && !pz.y ? '' : `translate(${pz.x}px,${pz.y}px) scale(${pz.z})`;
+}
+function fitPdf(animate) {
+  const cv = pdfCv(); if (!cv) return;
+  const st = $('#pdfStage');
+  cv.style.transition = animate ? 'transform .28s ease' : 'none';
+  pz.z = 1; pz.x = 0; pz.y = 0;
+  if (S.pdfFit === 'width') { pz.z = Math.max(1, (st.clientWidth - 16) / cv.offsetWidth); pz.y = 1e9; }  // start at the top of the page
+  applyPz(cv); scheduleHi();
+}
+function scheduleHi() { clearTimeout(hiTimer); hiTimer = setTimeout(hiRes, 320); }
+// after zooming, draw the page again at the new size so it stays sharp
+async function hiRes() {
+  if (!cur || !isPdf() || !paged() || !pdfDoc) return;
+  const cv = pdfCv(); if (!cv || pz.z < 1.05) return;
+  const n = pdfPage;
+  try {
+    const page = await pdfDoc.getPage(n), v1 = page.getViewport({ scale: 1 });
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    let s = (cv.offsetWidth / v1.width) * pz.z * dpr;
+    s = Math.min(s, Math.sqrt(14e6 / (v1.width * v1.height)));
+    if (cv.dataset.scale && Math.abs(+cv.dataset.scale - s) / s < 0.1) return;
+    const vp = page.getViewport({ scale: s });
+    const nc = document.createElement('canvas'); nc.width = Math.floor(vp.width); nc.height = Math.floor(vp.height);
+    nc.style.width = cv.style.width; nc.style.height = cv.style.height;
+    await page.render({ canvasContext: nc.getContext('2d'), viewport: vp }).promise;
+    if (pdfPage !== n || pdfCv() !== cv) return;
+    nc.style.transform = cv.style.transform; nc.style.transition = 'none'; nc.dataset.scale = s;
+    cv.replaceWith(nc);
+  } catch (e) { /* keep the lower quality picture */ }
+}
+function fitButton() {
+  if (!isPdf()) return;
+  if (paged()) {
+    S.pdfFit = S.pdfFit === 'width' ? 'page' : 'width'; applySettings();
+    toast(S.pdfFit === 'width' ? 'Fit to width' : 'Fit whole page'); fitPdf(true);
+  } else { scrollZoom = 1; toast('Fit to width'); layoutPdf(); }
+}
+function wirePinch(node) {
+  let mode = null, d0 = 0, z0 = 1, t0 = { x: 0, y: 0 }, m0 = { x: 0, y: 0 }, p0 = { x: 0, y: 0 }, ratio = 1;
+  const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  const rel = (t) => { const r = $('#pdfStage').getBoundingClientRect(); return { x: (t[0].clientX + t[1].clientX) / 2 - (r.left + r.width / 2), y: (t[0].clientY + t[1].clientY) / 2 - (r.top + r.height / 2) }; };
+  const zoomPaged = () => isPdf() && paged();
+  node.addEventListener('touchstart', (e) => {
+    if (!cur) return;
+    if (e.touches.length === 2) {
+      pinching = true; mode = 'pinch'; d0 = dist(e.touches); ratio = 1;
+      if (zoomPaged()) { z0 = pz.z; t0 = { x: pz.x, y: pz.y }; m0 = rel(e.touches); const cv = pdfCv(); if (cv) cv.style.transition = 'none'; }
+    } else if (e.touches.length === 1 && zoomPaged() && pz.z > 1.02) {
+      mode = 'pan'; p0 = { x: e.touches[0].clientX, y: e.touches[0].clientY }; t0 = { x: pz.x, y: pz.y };
+      const cv = pdfCv(); if (cv) cv.style.transition = 'none';
+    } else mode = null;
+  }, { passive: true });
+  node.addEventListener('touchmove', (e) => {
+    if (!cur) return;
+    if (mode === 'pinch' && e.touches.length === 2) {
+      ratio = dist(e.touches) / d0;
+      if (zoomPaged()) {
+        const cv = pdfCv(); if (!cv) return;
+        const z = Math.max(1, Math.min(5, z0 * ratio)), m = rel(e.touches);
+        const qx = (m0.x - t0.x) / z0, qy = (m0.y - t0.y) / z0;
+        pz.z = z; pz.x = m.x - qx * z; pz.y = m.y - qy * z; applyPz(cv);
+      }
+    } else if (mode === 'pan' && e.touches.length === 1) {
+      const cv = pdfCv(); if (!cv) return;
+      pz.x = t0.x + (e.touches[0].clientX - p0.x); pz.y = t0.y + (e.touches[0].clientY - p0.y); applyPz(cv);
+    }
+  }, { passive: true });
+  node.addEventListener('touchend', (e) => {
+    if (mode === 'pinch' && e.touches.length < 2) {
+      justDragged = Date.now();
+      if (zoomPaged()) {
+        if (pz.z < 1.05) fitPdf(true); else scheduleHi();
+      } else if (isPdf()) {
+        scrollZoom = Math.max(1, Math.min(3, scrollZoom * ratio)); layoutPdf();
+      } else {
+        const ns = Math.max(14, Math.min(34, Math.round(S.size * ratio)));
+        if (ns !== S.size) { S.size = ns; applySettings(); toast('Text size ' + ns); }
+      }
+      mode = null; setTimeout(() => { pinching = false; }, 80);
+    } else if (mode === 'pan' && e.touches.length === 0) { mode = null; justDragged = Date.now(); }
+  });
+}
+
 function wireReader() {
   const page = $('#page'), st = $('#pdfStage');
+  wirePinch(page); wirePinch(st);
+  $('#fitBtn').onclick = fitButton;
   page.onscroll = () => { if (cur && !paged() && !isPdf()) scrollProgress(page); };
   st.onscroll = () => { if (cur && isPdf() && !paged()) scrollProgress(st); };
   page.addEventListener('click', onTap); st.addEventListener('click', onTap);
