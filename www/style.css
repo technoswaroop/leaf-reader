@@ -1,0 +1,30 @@
+:root{--bg:#f6f1e7;--fg:#2b2620;--muted:#8a8070;--card:#ebe4d4;--fs:19px;--ff:Georgia,serif;--w:100%}
+body.dusk{--bg:#2a2622;--fg:#d9cfbf;--muted:#948a7b;--card:#363029}
+body.ink{--bg:#000;--fg:#cfcfcf;--muted:#777;--card:#151515}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif}
+.screen{position:absolute;inset:0;display:flex;flex-direction:column;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+[hidden]{display:none!important}
+header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;gap:8px}
+header h1{margin:0;font-size:24px}
+#rtitle{flex:1;text-align:center;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--muted)}
+button,select,input[type=search]{background:var(--card);color:var(--fg);border:0;border-radius:10px;padding:9px 13px;font-size:15px}
+input[type=search]{margin:0 16px 8px;width:calc(100% - 32px)}
+.row{display:flex;gap:8px;padding:4px 16px;flex-wrap:wrap}
+.chips button.on{background:var(--fg);color:var(--bg)}
+ul{list-style:none;margin:0;padding:8px 16px;overflow:auto;flex:1}
+li{background:var(--card);border-radius:12px;padding:12px 14px;margin-bottom:8px}
+li small{display:block;color:var(--muted);margin-top:4px}
+li .bar{height:3px;background:var(--bg);border-radius:2px;margin-top:8px}
+li .bar i{display:block;height:100%;background:var(--fg);border-radius:2px}
+.muted{color:var(--muted);padding:0 16px}
+#page{flex:1;overflow:auto;padding:8px 18px 80px}
+#content{margin:0 auto;width:var(--w);font-family:var(--ff);font-size:var(--fs);line-height:1.65}
+#content h1,#content h2,#content h3{line-height:1.25}
+#panel{position:absolute;left:0;right:0;bottom:0;background:var(--card);padding:12px 8px 20px;border-radius:16px 16px 0 0;z-index:5}
+#panel label{display:flex;justify-content:space-between;align-items:center;padding:6px 16px}
+#panel input[type=range]{width:65%}
+#dim,#warm,#grainLayer{position:fixed;inset:0;pointer-events:none;z-index:9}
+#dim{background:#000;opacity:0}
+#warm{background:#ff9a3c;mix-blend-mode:multiply;opacity:0}
+#grainLayer{opacity:0;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9'/></filter><rect width='120' height='120' filter='url(%23n)'/></svg>")}

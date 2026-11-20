@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Leaf Reader</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="paper">
+<div id="library" class="screen">
+  <header>
+    <h1>Library</h1>
+    <div class="row">
+      <button id="addFile">+ File</button>
+      <button id="addLink">+ Link</button>
+    </div>
+  </header>
+  <input id="search" type="search" placeholder="Search titles and text">
+  <div class="row chips" id="tabs">
+    <button data-tab="all" class="on">All</button>
+    <button data-tab="reading">Reading</button>
+    <button data-tab="finished">Finished</button>
+  </div>
+  <div class="row chips" id="kinds">
+    <button data-kind="all" class="on">Any</button>
+    <button data-kind="book">Books</button>
+    <button data-kind="article">Articles</button>
+    <button data-kind="document">Documents</button>
+  </div>
+  <div class="row chips">
+    <select id="sort"><option value="recent">Recently read</option><option value="az">A to Z</option></select>
+  </div>
+  <ul id="list"></ul>
+  <p id="empty" class="muted">Nothing here yet. Add a file (EPUB or TXT) or paste a link.</p>
+  <input id="fileInput" type="file" accept=".epub,.txt,.text,.md" hidden>
+</div>
+
+<div id="reader" class="screen" hidden>
+  <header>
+    <button id="back">&larr;</button>
+    <span id="rtitle"></span>
+    <button id="gear">Aa</button>
+  </header>
+  <div id="page"><div id="content"></div></div>
+  <div id="panel" hidden>
+    <div class="row">
+      <button data-theme="paper">Paper</button>
+      <button data-theme="dusk">Dusk</button>
+      <button data-theme="ink">Ink</button>
+    </div>
+    <label>Light <input type="range" id="light" min="5" max="100"></label>
+    <label>Contrast <input type="range" id="contrast" min="0" max="100"></label>
+    <label>Warmth <input type="range" id="warmth" min="0" max="100"></label>
+    <label>Grain <input type="range" id="grain" min="0" max="100"></label>
+    <label>Text size <input type="range" id="size" min="14" max="30"></label>
+    <div class="row">
+      <select id="font">
+        <option value="Georgia,serif">Serif</option>
+        <option value="system-ui,sans-serif">Sans</option>
+        <option value="'Courier New',monospace">Mono</option>
+      </select>
+      <select id="width">
+        <option value="100">Full page</option>
+        <option value="80">80%</option>
+        <option value="60">60%</option>
+        <option value="40">40%</option>
+      </select>
+    </div>
+    <p id="stats" class="muted"></p>
+    <div class="row"><button id="finish">Mark finished</button></div>
+  </div>
+</div>
+
+<div id="dim"></div><div id="warm"></div><div id="grainLayer"></div>
+<script src="jszip.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

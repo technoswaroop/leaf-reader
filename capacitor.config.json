@@ -1,0 +1,8 @@
+{
+  "appId": "com.leafreader.app",
+  "appName": "Leaf Reader",
+  "webDir": "www",
+  "plugins": {
+    "CapacitorHttp": { "enabled": true }
+  }
+}
